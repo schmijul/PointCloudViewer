@@ -1,6 +1,8 @@
 # 3D Point Cloud Viewer
 
-A general-purpose 3D point cloud viewer built with OpenGL and GLFW, allowing you to visualize and interact with 3D point cloud data in real time. This viewer works with any 3D point data, not just LiDAR data.
+A general-purpose 3D point cloud viewer built with OpenGL and GLFW, allowing you to visualize and interact with 3D point cloud data in real time. This viewer works with any 3D point data (x,y,z format)
+
+![Example of 3D Point Cloud Viewer](imgs/exampleIMG.png)
 
 ## Features
 - **3D Visualization**: Visualize any set of 3D points.
