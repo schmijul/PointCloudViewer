@@ -3,7 +3,7 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 import numpy as np
 import csv
-
+import math
 class PointCloudViewer:
     """
     A general-purpose 3D point cloud viewer using OpenGL and GLFW.
@@ -13,29 +13,47 @@ class PointCloudViewer:
     window : object
         The GLFW window object.
     points : np.ndarray
-        The 3D point cloud data (Nx3 array of x, y, z coordinates).
-    cam_distance : float
-        Distance of the camera from the point cloud.
-    cam_angle_x : float
-        Camera's horizontal rotation angle.
-    cam_angle_y : float
-        Camera's vertical rotation angle.
+        The 3D point cloud data (Nx6 array of x, y, z, r, g, b for color).
+    cam_position : np.ndarray
+        The camera position in 3D space.
+    cam_front : np.ndarray
+        The direction the camera is facing.
+    cam_up : np.ndarray
+        The camera's up vector.
+    speed : float
+        The speed of camera movement.
+    yaw : float
+        The horizontal angle for camera rotation.
+    pitch : float
+        The vertical angle for camera rotation.
     """
     
-    def __init__(self, width=800, height=600, title="3D Point Cloud Viewer", points=None):
+    def __init__(self, width=800, height=600, title="3D Space Traveling Simulator", points=None):
         """Initialize the PointCloudViewer with a window and point cloud data."""
         self.width = width
         self.height = height
         self.title = title
-        self.points = points if points is not None else np.array([])
-        
-        self.cam_distance = 50.0
-        self.cam_angle_x = 0
-        self.cam_angle_y = 0
-        self.last_x = width // 2
-        self.last_y = height // 2
+        if points is not None and points.shape[1] == 6:
+            self.points = points
+            self.has_colors = True
+        else:
+            self.points = points if points is not None else np.array([])
+            self.has_colors = False
+
+        self.cam_position = np.array([0.0, 0.0, 0.0], dtype=float)
+        self.cam_front = np.array([0.0, 0.0, -1.0], dtype=float)
+        self.cam_up = np.array([0.0, 1.0, 0.0], dtype=float)
+        self.speed = 10.0
+        self.yaw = -90.0
+        self.pitch = 0.0
+        self.last_time = glfw.get_time()
+        self.first_mouse = True
+        self.last_x = self.width // 2
+        self.last_y = self.height // 2
+        self.keys = {}
+
         self.mouse_left_pressed = False
-        
+
         # Initialize GLFW and OpenGL
         self.window = self.init_window()
         self.init_opengl()
@@ -54,13 +72,14 @@ class PointCloudViewer:
     def init_opengl(self):
         """Set up the OpenGL context and projection."""
         glEnable(GL_DEPTH_TEST)  # Enable depth testing for 3D rendering
-        glPointSize(5)  # Set point size for point cloud
+        glEnable(GL_POINT_SMOOTH)
+        glPointSize(2)  # Set point size for point cloud
         glClearColor(0.0, 0.0, 0.0, 1.0)  # Background color
-        
+
         # Set up projection matrix
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
-        gluPerspective(45, self.width / self.height, 0.1, 1000)  # Set perspective
+        gluPerspective(45, self.width / self.height, 0.1, 10000)  # Set perspective
         
         # Set up model view matrix
         glMatrixMode(GL_MODELVIEW)
@@ -68,12 +87,34 @@ class PointCloudViewer:
 
     def mouse_callback(self, window, xpos, ypos):
         """Handle mouse movements for camera rotation."""
-        if self.mouse_left_pressed:
-            dx = xpos - self.last_x
-            dy = ypos - self.last_y
-            self.cam_angle_x += dx * 0.1
-            self.cam_angle_y += dy * 0.1
+        if self.first_mouse:
+            self.last_x, self.last_y = xpos, ypos
+            self.first_mouse = False
+
+        xoffset = xpos - self.last_x
+        yoffset = self.last_y - ypos  # Reversed since y-coordinates go from bottom to top
         self.last_x, self.last_y = xpos, ypos
+
+        sensitivity = 0.1
+        xoffset *= sensitivity
+        yoffset *= sensitivity
+
+        self.yaw += xoffset
+        self.pitch += yoffset
+
+        # Constrain the pitch
+        if self.pitch > 89.0:
+            self.pitch = 89.0
+        if self.pitch < -89.0:
+            self.pitch = -89.0
+
+        # Update front vector
+        front = np.array([
+            math.cos(math.radians(self.yaw)) * math.cos(math.radians(self.pitch)),
+            math.sin(math.radians(self.pitch)),
+            math.sin(math.radians(self.yaw)) * math.cos(math.radians(self.pitch))
+        ])
+        self.cam_front = front / np.linalg.norm(front)
 
     def mouse_button_callback(self, window, button, action, mods):
         """Handle mouse button presses."""
@@ -82,17 +123,50 @@ class PointCloudViewer:
 
     def scroll_callback(self, window, xoffset, yoffset):
         """Handle scroll wheel for zoom."""
-        self.cam_distance -= yoffset * 2
+        self.speed += yoffset * 2
+
+    def key_callback(self, window, key, scancode, action, mods):
+        """Handle keyboard input."""
+        if action == glfw.PRESS:
+            self.keys[key] = True
+        elif action == glfw.RELEASE:
+            self.keys[key] = False
+
+    def process_input(self):
+        """Process keyboard input for camera movement."""
+        current_time = glfw.get_time()
+        delta_time = current_time - self.last_time
+        self.last_time = current_time
+
+        velocity = self.speed * delta_time
+
+        if self.keys.get(glfw.KEY_W):
+            self.cam_position += self.cam_front * velocity
+        if self.keys.get(glfw.KEY_S):
+            self.cam_position -= self.cam_front * velocity
+        if self.keys.get(glfw.KEY_A):
+            self.cam_position -= np.cross(self.cam_front, self.cam_up) * velocity
+        if self.keys.get(glfw.KEY_D):
+            self.cam_position += np.cross(self.cam_front, self.cam_up) * velocity
+        if self.keys.get(glfw.KEY_SPACE):
+            self.cam_position += self.cam_up * velocity
+        if self.keys.get(glfw.KEY_LEFT_SHIFT):
+            self.cam_position -= self.cam_up * velocity
 
     def apply_camera_transformations(self):
         """Apply camera transformations for rotating and zooming the view."""
-        glTranslatef(0.0, 0.0, -self.cam_distance)  # Move camera backwards
-        glRotatef(self.cam_angle_y, 1.0, 0.0, 0.0)  # Rotate vertically
-        glRotatef(self.cam_angle_x, 0.0, 1.0, 0.0)  # Rotate horizontally
+        center = self.cam_position + self.cam_front
+        gluLookAt(
+            self.cam_position[0], self.cam_position[1], self.cam_position[2],
+            center[0], center[1], center[2],
+            self.cam_up[0], self.cam_up[1], self.cam_up[2]
+        )
 
     def render(self):
         """Main rendering loop to display the point cloud."""
         while not glfw.window_should_close(self.window):
+            self.process_input()
+
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             glLoadIdentity()
 
@@ -100,8 +174,14 @@ class PointCloudViewer:
 
             # Render the point cloud
             glBegin(GL_POINTS)
-            for x, y, z in self.points:
-                glVertex3f(x, y, z)
+            if self.has_colors:
+                for point in self.points:
+                    glColor3f(point[3], point[4], point[5])
+                    glVertex3f(point[0], point[1], point[2])
+            else:
+                glColor3f(1.0, 1.0, 1.0)  # Default white color
+                for x, y, z in self.points:
+                    glVertex3f(x, y, z)
             glEnd()
 
             glfw.swap_buffers(self.window)
@@ -129,8 +209,9 @@ class PointCloudViewer:
         print(f"Point cloud saved to {filename}")
 
     def setup_callbacks(self):
-        """Set up GLFW callbacks for mouse interaction."""
+        """Set up GLFW callbacks for mouse and keyboard interaction."""
         glfw.set_cursor_pos_callback(self.window, self.mouse_callback)
         glfw.set_mouse_button_callback(self.window, self.mouse_button_callback)
         glfw.set_scroll_callback(self.window, self.scroll_callback)
-
+        glfw.set_key_callback(self.window, self.key_callback)
+        glfw.set_input_mode(self.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
