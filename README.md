@@ -6,6 +6,8 @@ A general-purpose 3D point cloud viewer built with OpenGL and GLFW, allowing you
 
 ## Demo
 
+## Demo
+
 ![3D Point Cloud Viewer Demo](imgs/small_demo.gif)
 
 ## Features
